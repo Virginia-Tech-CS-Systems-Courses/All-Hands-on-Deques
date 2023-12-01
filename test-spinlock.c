@@ -13,10 +13,8 @@
 
 #ifdef TTAS
 #include "spinlock-TTAS.h"
-
 #include "DEQ_Lock.h"
 #include "DEQ_Lock_QSORT.h"
-
 #endif
 
 #ifndef cpu_relax
@@ -51,16 +49,7 @@ typedef struct QuicksortTaskArg {
 
 #define TOTAL_OPERATIONS 32
 #define ARRAY_SIZE 100
-int* array;
-
-typedef struct ThreadInfo_qs {
-    int id;
-    Deque* localDeque;
-} ThreadInfo_qs;
-
-ThreadInfo_qs* threadInfos_qs; 
-
-
+int* Qsort_array;
 
 
 
@@ -120,6 +109,11 @@ typedef struct ThreadInfo {
     int fibonacciPrev2;  // Second previous Fibonacci value
 } ThreadInfo;
 
+typedef struct ThreadInfo_qs {
+    int id;
+    Deque_qs* localDeque;
+} ThreadInfo_qs;
+
 
 
 #ifdef TTAS
@@ -151,6 +145,7 @@ void bind_core(int threadid) {
 #endif
 
 ThreadInfo* threadInfos;
+ThreadInfo_qs* threadInfos_qs; 
 
 #ifdef TTAS
 Deque globalDeque;
@@ -159,6 +154,60 @@ Deque globalDeque;
 int a;
 unsigned long long Prev1 = 0;
 unsigned long long Prev2 = 1;
+
+void swap(int* a, int* b) {
+    int temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+int partition(int* array, int low, int high) {
+    int pivot = array[high];
+    int i = low - 1;
+
+    for (int j = low; j < high; ++j) {
+        if (array[j] < pivot) {
+            ++i;
+            swap(&array[i], &array[j]);
+        }
+    }
+
+    swap(&array[i + 1], &array[high]);
+    return i + 1;
+}
+
+
+
+void quicksortTask(void* arg, void* arg1) {
+    QuicksortTaskArg* qArg = (QuicksortTaskArg*)arg;
+    Deque_qs* deque = (Deque_qs*)arg1;
+    int* array = qArg->array;
+    int low = qArg->low;
+    int high = qArg->high;
+    if (low < high) {
+        int pivot = partition(array, low, high);
+        QuicksortTaskArg leftArg = { array, low, pivot - 1 };
+        QuicksortTaskArg rightArg = { array, pivot + 1, high };
+
+        // Push tasks for the left and right partitions
+        spawnQuicksortTask(&leftArg, deque);
+        spawnQuicksortTask(&rightArg, deque);
+    }
+}
+
+
+
+void spawnQuicksortTask(QuicksortTaskArg* qArg, Deque_qs* deque) {
+    TaskDescriptor_qsort* task = (TaskDescriptor_qsort*)malloc(sizeof(TaskDescriptor_qsort));
+    task->function = quicksortTask;
+
+    // Allocate and set the argument based on the QuicksortTaskArg structure
+    task->arg = malloc(sizeof(QuicksortTaskArg));
+    *((QuicksortTaskArg*)task->arg) = *qArg;
+    task->arg1 = deque;
+
+    pushBack_qs(deque, task,&sl);
+}
 
 
 void fibonacciTask(void* arg,void *arg1) {
@@ -227,6 +276,35 @@ void executeTasks(ThreadInfo* info) {
     }
 }
 
+void executeTasks_qs(ThreadInfo_qs* info) {
+    Deque_qs* localDeque = info->localDeque;
+    TaskDescriptor_qsort* task;
+
+    // First, pop tasks from the local deque
+    while ((task = popFront_qs(localDeque,&sl)) != NULL) {
+        task->function(task->arg,task->arg1);
+        free(task->arg);
+        free(task);
+    }
+
+    // If the local deque is empty, attempt to steal tasks from other threads
+    for (int i = 0; i < nthr; ++i) {
+        if (i != info->id) {
+            Deque_qs* victimDeque = threadInfos_qs[i].localDeque;
+
+            // Try to steal a task from the bottom of the victim's deque
+            TaskDescriptor_qsort* stolenTask = popBack_qs(victimDeque,&sl);
+            if (stolenTask != NULL) {
+                printf("Thread %d stole a task from Thread %d\n", info->id, threadInfos_qs[i].id);
+                stolenTask->function(stolenTask->arg,stolenTask->arg1);
+                free(stolenTask->arg);
+                free(stolenTask);
+                break;  // Steal only one task
+            }
+        }
+    }
+}
+
 
 
 void initThreadInfo(ThreadInfo* info, int id) {
@@ -234,6 +312,11 @@ void initThreadInfo(ThreadInfo* info, int id) {
     info->localDeque = createDeque();
     info->fibonacciPrev1 = 0;
     info->fibonacciPrev2 = 1;
+}
+
+void initThreadInfo_qs(ThreadInfo_qs* info, int id) {
+    info->id = id;
+    info->localDeque = createDeque_qs();
 }
 
 
@@ -274,17 +357,44 @@ void* worker(void* arg) {
     return NULL;
 }
 
+void* worker_qsort(void* arg) {
+    ThreadInfo_qs* info = (ThreadInfo_qs*)arg;
+
+    // Mimic Cilk's randomized work-stealing
+    //while (1) {
+        // Spawn Quicksort tasks
+
+    wait_flag(&wflag, nthr);
+
+    if (((long) info->id == 0)) {
+        /*printf("get start time\n");*/
+        gettimeofday(&start_time, NULL);
+    }
+    
+        QuicksortTaskArg qArg = { Qsort_array, 0, ARRAY_SIZE - 1 };
+        spawnQuicksortTask(&qArg, info->localDeque);
+
+        executeTasks_qs(info);
+    
+    if (__sync_fetch_and_add((uint32_t *)&wflag, -1) == 1) {
+        gettimeofday(&end_time, NULL);
+    }
+
+    
+    //}
+
+    return NULL;
+}
 
 
 
-
-
-
-
-
-
-
-
+void printArray(int* array, int size) {
+    printf("Sorted Array: ");
+    for (int i = 0; i < size; ++i) {
+        printf("%d ", array[i]);
+    }
+    printf("\n");
+}
 
 
 
@@ -306,9 +416,9 @@ int main(int argc, const char *argv[])
         exit(1);
     }
 
-    array = (int*)malloc(ARRAY_SIZE * sizeof(int));
+    Qsort_array = (int*)malloc(ARRAY_SIZE * sizeof(int));
     for (int i = 0; i < ARRAY_SIZE; ++i) {
-        array[i] = rand() % 100;  // Initialize array with random values
+        Qsort_array[i] = rand() % 100;  // Initialize array with random values
     }
 
     nthr = atoi(argv[1]);
@@ -342,6 +452,36 @@ int main(int argc, const char *argv[])
     }
     case QSORT:
     {
+    printf("Starting QSORT\n");
+
+    printf("Unsorted Array:\n ");
+    for (int i = 0; i < ARRAY_SIZE; ++i) {
+        printf("%d ", Qsort_array[i]);
+    }
+    printf("\n");
+    threadInfos_qs = (ThreadInfo_qs*)malloc(nthr * sizeof(ThreadInfo_qs));
+
+    // Start thread
+    for (long i = 0; i < nthr; i++) {
+        //printf("thread id is %ld", i);
+        initThreadInfo_qs(&threadInfos_qs[i], i);
+        if (pthread_create(&thr[i], NULL, worker_qsort, &threadInfos_qs[i]) != 0) {
+            perror("thread creating failed");
+        }
+    }
+
+    for (long i = 0; i < nthr; i++)
+        pthread_join(thr[i], NULL);
+    
+    free(threadInfos_qs);
+
+    
+    printf("Done\n");    
+    calc_time(&start_time, &end_time);
+
+    printArray(Qsort_array, ARRAY_SIZE);
+
+
 
     
 

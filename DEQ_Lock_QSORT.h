@@ -1,13 +1,14 @@
-#ifndef _DEQ_Lock_H
-#define _DEQ_Lock_H
+#ifndef _DEQ_Lock_QSORT_H
+#define _DEQ_Lock_QSORT_H
 
 #include "spinlock-TTAS.h"
 #define DEQUE_CAPACITY 100
 
 /*QSORT*/
 typedef struct TaskDescriptor_qsort {
-    void (*function)(void*);  // Function pointer for task execution
+    void (*function)(void*,void*);  // Function pointer for task execution
     void* arg;                 // Argument for the task function
+    void* arg1;
 } TaskDescriptor_qsort;
 
 
@@ -96,4 +97,4 @@ TaskDescriptor_qsort* popBack_qs(Deque_qs* deque, spinlock *lock) {
 }
 
 
-#endif /* _DEQ_Lock_H */
+#endif /* _DEQ_Lock_QSORT_H */
