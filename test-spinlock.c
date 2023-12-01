@@ -14,6 +14,7 @@
 #ifdef TTAS
 #include "spinlock-TTAS.h"
 #include "DEQ_Lock.h"
+#include "DEQ_Lock_QSORT.h"
 #endif
 
 #ifndef cpu_relax
@@ -21,15 +22,17 @@
 #endif
 
 enum Test{
-    Enqueue = 0,
-    Verify_Enqueue,
-    Dequeue,
-    Verify_Dequeue,
-    Enqueue_Half_Million,
-    Verify_Half_Million_Enqueue,
-    Parallel_Enqueue_Dequeue,
-    Verify_Parallel_Enq_Dq
+    Fibonacci = 0,
+    QSORT
 };
+
+enum Test state = Fibonacci;
+
+typedef struct QuicksortTaskArg {
+    int* array;
+    int low;
+    int high;
+} QuicksortTaskArg; 
 
 /*
  * You need  to provide your own code for bidning threads to processors
@@ -43,6 +46,22 @@ enum Test{
 #define N_PAIR 16000000
 
 #define TOTAL_OPERATIONS 32
+#define ARRAY_SIZE 100
+int* array;
+
+typedef struct ThreadInfo_qs {
+    int id;
+    Deque* localDeque;
+} ThreadInfo_qs;
+
+ThreadInfo_qs* threadInfos_qs; 
+
+void initThreadInfo_qs(ThreadInfo_qs* info, int id) {
+    info->id = id;
+    info->localDeque = createDeque();
+}
+
+
 
 /* Bind threads to specific cores. The goal is to make threads locate on the
  * same physical CPU. Modify bind_core before using this. */
@@ -137,31 +156,34 @@ Deque globalDeque;
 #endif
 
 int a;
+unsigned long long Prev1 = 0;
+unsigned long long Prev2 = 1;
 
 
 void fibonacciTask(void* arg,void *arg1) {
     int n = *((int*)arg);
     ThreadInfo* info;
     info = (ThreadInfo*)arg1;
-    int a = threadInfos[info->id].fibonacciPrev1;
-    int b = threadInfos[info->id].fibonacciPrev2;
-    int next;
+    unsigned long long a = Prev1;
+    unsigned long long b = Prev2;
+    unsigned long long next;
 
     printf("Thread %d - Fibonacci(%d): ", threadInfos[info->id].id, n);
 
     for (int i = 0; i < n; ++i) {
         // Mimic Fibonacci computation
-        printf("%d ", a);
+        printf("%llu ", a);
         next = a + b;
         a = b;
         b = next;
     }
 
-    threadInfos[info->id].fibonacciPrev1 = a;
-    threadInfos[info->id].fibonacciPrev2 = b;
+    Prev1 = a;
+    Prev2 = b;
 
     printf("\n");
 }
+
 
 void spawnFibonacciTask(int n, Deque* deque, ThreadInfo* info) {
     TaskDescriptor* task = (TaskDescriptor*)malloc(sizeof(TaskDescriptor));
@@ -171,6 +193,8 @@ void spawnFibonacciTask(int n, Deque* deque, ThreadInfo* info) {
     task->arg1 = info;
     pushBack(deque, task, &sl);
 }
+
+
 
 void executeTasks(ThreadInfo* info) {
     Deque* localDeque = info->localDeque;
@@ -194,7 +218,7 @@ void executeTasks(ThreadInfo* info) {
                 printf("Thread %d stole a task from Thread %d\n", info->id, threadInfos[i].id);
                 stolenTask->function(stolenTask->arg,stolenTask->arg1);
                 free(stolenTask->arg);
-                free(stolenTask->arg1);
+                //free(stolenTask->arg1);
                 free(stolenTask);
                 break;  // Steal only one task
             }
@@ -216,6 +240,13 @@ void* worker(void* arg) {
     ThreadInfo* info = (ThreadInfo*)arg;
 
     // Mimic Cilk's randomized work-stealing
+
+    wait_flag(&wflag, nthr);
+
+    if (((long) info->id == 0)) {
+        /*printf("get start time\n");*/
+        gettimeofday(&start_time, NULL);
+    }
     
 
     int startValue = (info->id) * (TOTAL_OPERATIONS / nthr) + 1;
@@ -233,6 +264,10 @@ void* worker(void* arg) {
         }
 
         executeTasks(info);
+
+    if (__sync_fetch_and_add((uint32_t *)&wflag, -1) == 1) {
+        gettimeofday(&end_time, NULL);
+    }
 
 
     return NULL;
@@ -253,11 +288,14 @@ void* worker(void* arg) {
 
 
 
+
+
+
 int main(int argc, const char *argv[])
 {
-    enum Test state = Enqueue; 
     pthread_t *thr;
     int ret = 0;
+
 
     #ifdef TTAS
     #endif
@@ -267,11 +305,19 @@ int main(int argc, const char *argv[])
         exit(1);
     }
 
+    array = (int*)malloc(ARRAY_SIZE * sizeof(int));
+    for (int i = 0; i < ARRAY_SIZE; ++i) {
+        array[i] = rand() % 100;  // Initialize array with random values
+    }
+
     nthr = atoi(argv[1]);
     //printf("using %d threads\n", nthr);
     thr = calloc(sizeof(*thr), nthr);
 
-    threadInfos = (ThreadInfo*)malloc(nthr * sizeof(ThreadInfo));
+    switch (state)
+    {
+    case Fibonacci:{
+        threadInfos = (ThreadInfo*)malloc(nthr * sizeof(ThreadInfo));
 
     // Start thread
     for (long i = 0; i < nthr; i++) {
@@ -284,10 +330,28 @@ int main(int argc, const char *argv[])
 
     for (long i = 0; i < nthr; i++)
         pthread_join(thr[i], NULL);
+    
+    free(threadInfos);
 
     
     printf("Done\n");    
     calc_time(&start_time, &end_time);
+        
+       //break;
+    }
+    case QSORT:
+    {
+
+    
+
+        break;
+    }
+    
+    default:
+        break;
+    }
+
+
 
 
 
