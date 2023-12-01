@@ -13,8 +13,10 @@
 
 #ifdef TTAS
 #include "spinlock-TTAS.h"
+
 #include "DEQ_Lock.h"
 #include "DEQ_Lock_QSORT.h"
+
 #endif
 
 #ifndef cpu_relax
@@ -25,6 +27,8 @@ enum Test{
     Fibonacci = 0,
     QSORT
 };
+
+
 
 enum Test state = Fibonacci;
 
@@ -56,10 +60,7 @@ typedef struct ThreadInfo_qs {
 
 ThreadInfo_qs* threadInfos_qs; 
 
-void initThreadInfo_qs(ThreadInfo_qs* info, int id) {
-    info->id = id;
-    info->localDeque = createDeque();
-}
+
 
 
 
@@ -220,7 +221,7 @@ void executeTasks(ThreadInfo* info) {
                 free(stolenTask->arg);
                 //free(stolenTask->arg1);
                 free(stolenTask);
-                break;  // Steal only one task
+                //break;  // Steal only one task
             }
         }
     }
