@@ -15,8 +15,8 @@ function run_test() {
 echo "Test DEQ using TTAS lock"
 run_test "test-deq-lock"
 
-#echo "TEST LOCK FREE FIFO QUEUE"
-#run_test "test-lockfree-fifo"
+echo "Test DEQ using lock Free Algorithm"
+run_test "test-deq-lockfree"
 
 #echo "TEST WAIT FREE FIFO QUEUE"
 #run_test "test-waitfree-fifo"

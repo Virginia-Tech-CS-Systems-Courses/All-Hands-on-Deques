@@ -15,6 +15,9 @@
 #include "spinlock-TTAS.h"
 #include "DEQ_Lock.h"
 #include "DEQ_Lock_QSORT.h"
+#elif defined(LCKFREE)
+#include "DEQ_LockFree.h"
+#include "DEQ_LockFree_Qsort.h"
 #endif
 
 #ifndef cpu_relax
@@ -206,7 +209,11 @@ void spawnQuicksortTask(QuicksortTaskArg* qArg, Deque_qs* deque) {
     *((QuicksortTaskArg*)task->arg) = *qArg;
     task->arg1 = deque;
 
+    #if (TTAS)
     pushBack_qs(deque, task,&sl);
+    #elif defined (LCKFREE)
+    pushBottom_qs(deque, *task);
+    #endif
 }
 
 
@@ -241,7 +248,11 @@ void spawnFibonacciTask(int n, Deque* deque, ThreadInfo* info) {
     task->arg = (int*)malloc(sizeof(int));
     *((int*)task->arg) = n;
     task->arg1 = info;
+    #ifdef TTAS
     pushBack(deque, task, &sl);
+    #elif defined(LCKFREE)
+    pushBottom(deque, *task);
+    #endif
 }
 
 
@@ -251,11 +262,19 @@ void executeTasks(ThreadInfo* info) {
     TaskDescriptor* task;
 
     // First, pop tasks from the local deque
+    #ifdef TTAS
     while ((task = popFront(localDeque,&sl)) != NULL) {
         task->function(task->arg,task->arg1);
         free(task->arg);
         free(task);
     }
+    #elif defined(LCKFREE)
+        while ((task = popTop(localDeque)) != NULL) {
+        task->function(task->arg,task->arg1);
+        free(task->arg);
+        free(task);
+    }
+    #endif
 
     // If the local deque is empty, attempt to steal tasks from other threads
     for (int i = 0; i < nthr; ++i) {
@@ -263,14 +282,18 @@ void executeTasks(ThreadInfo* info) {
             Deque* victimDeque = threadInfos[i].localDeque;
 
             // Try to steal a task from the bottom of the victim's deque
+            #if TTAS
             TaskDescriptor* stolenTask = popBack(victimDeque,&sl);
+            #elif defined(LCKFREE)
+            TaskDescriptor* stolenTask = popBottom(victimDeque);
+            #endif
             if (stolenTask != NULL) {
                 printf("Thread %d stole a task from Thread %d\n", info->id, threadInfos[i].id);
                 stolenTask->function(stolenTask->arg,stolenTask->arg1);
                 free(stolenTask->arg);
                 //free(stolenTask->arg1);
                 free(stolenTask);
-                //break;  // Steal only one task
+                break;  // Steal only one task
             }
         }
     }
@@ -279,26 +302,43 @@ void executeTasks(ThreadInfo* info) {
 void executeTasks_qs(ThreadInfo_qs* info) {
     Deque_qs* localDeque = info->localDeque;
     TaskDescriptor_qsort* task;
+    TaskDescriptor_qsort* stolenTask;
 
     // First, pop tasks from the local deque
+    #if (TTAS)
     while ((task = popFront_qs(localDeque,&sl)) != NULL) {
         task->function(task->arg,task->arg1);
         free(task->arg);
         free(task);
     }
+    #elif defined(LCKFREE)
+    while ((task = popTop_qs(localDeque)) != NULL) {
+        task->function(task->arg,task->arg1);
+        free(task->arg);
+        free(task);
+    }
+    #endif
 
     // If the local deque is empty, attempt to steal tasks from other threads
     for (int i = 0; i < nthr; ++i) {
         if (i != info->id) {
             Deque_qs* victimDeque = threadInfos_qs[i].localDeque;
 
+            if(victimDeque != NULL)
+            {
             // Try to steal a task from the bottom of the victim's deque
-            TaskDescriptor_qsort* stolenTask = popBack_qs(victimDeque,&sl);
+            #if (TTAS)
+            stolenTask = popBack_qs(victimDeque,&sl);
+            #elif defined (LCKFREE)
+            stolenTask = popBottom_qs(victimDeque);
+            #endif
+
+            }
             if (stolenTask != NULL) {
                 printf("Thread %d stole a task from Thread %d\n", info->id, threadInfos_qs[i].id);
                 stolenTask->function(stolenTask->arg,stolenTask->arg1);
-                free(stolenTask->arg);
-                free(stolenTask);
+                //free(stolenTask->arg);
+                //free(stolenTask);
                 break;  // Steal only one task
             }
         }
@@ -309,14 +349,22 @@ void executeTasks_qs(ThreadInfo_qs* info) {
 
 void initThreadInfo(ThreadInfo* info, int id) {
     info->id = id;
+    #if (TTAS)
     info->localDeque = createDeque();
+    #elif (LCKFREE)
+    info->localDeque = createDeque();
+    #endif
     info->fibonacciPrev1 = 0;
     info->fibonacciPrev2 = 1;
 }
 
 void initThreadInfo_qs(ThreadInfo_qs* info, int id) {
     info->id = id;
+    #if (TTAS)
     info->localDeque = createDeque_qs();
+    #elif (LCKFREE)
+    info->localDeque = createDeque_qs();
+    #endif
 }
 
 
@@ -336,8 +384,8 @@ void* worker(void* arg) {
     int startValue = (info->id) * (TOTAL_OPERATIONS / nthr) + 1;
     int endValue = (info->id + 1) * (TOTAL_OPERATIONS / nthr);
 
-    printf("start value of %d thread is %d\n",info->id,startValue);
-    printf("End value of %d thread is %d\n",info->id,endValue);
+    //printf("start value of %d thread is %d\n",info->id,startValue);
+    //printf("End value of %d thread is %d\n",info->id,endValue);
 
 
 
@@ -473,7 +521,7 @@ int main(int argc, const char *argv[])
     for (long i = 0; i < nthr; i++)
         pthread_join(thr[i], NULL);
     
-    free(threadInfos_qs);
+    //free(threadInfos_qs);
 
     
     printf("Done\n");    

@@ -1,16 +1,17 @@
 CFLAGS = -O0 -g -std=gnu99 -Wall
-LDFLAGS = -lpthread
+LDFLAGS = -lpthread -latomic
 
-#programs =  test-spinlock-fifo test-lockfree-fifo test-waitfree-fifo
-programs = test-deq-lock
+
+programs =  test-deq-lock test-deq-lockfree
+#programs = test-deq-lockfree 
 all: $(programs)
 
 
 test-deq-lock: test-spinlock.c
 	$(CC) $(CFLAGS) -DTTAS $^ -o $@ $(LDFLAGS)
 
-#test-lockfree-fifo: test-spinlock.c
-#	$(CC) $(CFLAGS) -DLCKFREE_COPY $^ -o $@ $(LDFLAGS)
+test-deq-lockfree: test-spinlock.c
+	$(CC) $(CFLAGS) -DLCKFREE $^ -o $@ $(LDFLAGS)
 
 #test-waitfree-fifo: test-spinlock.c
 #	$(CC) $(CFLAGS) -DWAIT_FREE $^ -o $@ $(LDFLAGS)
